@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Clearance Status</title>
+    <link rel="stylesheet" href="static/css/materialize.min.css">
+    <link rel="stylesheet" href="static/css/material-icons.css">
+    <script src="static/js/jquery-3.6.0.min.js"></script>
+    <script src="static/js/plotly-latest.min.js"></script>
+    <style>
+        .container {
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .title {
+            text-align: center;
+            width: 100%;
+        }
+
+        .data-container {
+            width: 80%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .plot-container {
+            width: 40%;  /* Reduced width */
+            height: 300px; /* Set a fixed height */
+            margin-bottom: 20px;
+        }
+
+        .info-container {
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .status-flag {
+            width: 100%;
+            display: flex;
+            justify-content: center;
+            margin: 20px 0;
+        }
+
+        .flag {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background-color: gray;
+        }
+
+        .flag.green {
+            background-color: #008000;
+        }
+
+        .flag.red {
+            background-color: #FF0000;
+        }
+
+        #path-clearance {
+            font-size: 1.5em;
+            font-weight: bold;
+        }
+
+        .path-clearance-status {
+            display: flex;
+            align-items: center;
+            font-size: 1.5em;
+            font-weight: bold;
+        }
+
+        .path-clearance-status .status {
+            padding: 5px 50px; /* Increased padding */
+            border-radius: 5px;
+            color: white;
+            margin-left: 10px;
+        }
+
+        .path-clearance-status .status.yes {
+            background-color: #008000;
+        }
+
+        .path-clearance-status .status.no {
+            background-color: #FF0000;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 class="title">Clearance Status</h1>
+        <div class="input-field">
+            <input type="text" id="local-ip" class="validate" placeholder="Enter local IP">
+            <label for="local-ip" class="active">Radar server IP</label>
+        </div>
+        <div class="input-field">
+            <button id="start-button" class="btn waves-effect waves-light" type="button">Start</button>
+            <button id="stop-button" class="btn waves-effect waves-light red" type="button">Stop</button>
+        </div>
+
+        <div class="data-container">
+            <div class="info-container">
+                <div class="path-clearance-status">
+                    Path Clearance:
+                    <div id="path-clearance" class="status">No</div>
+                </div>
+            </div>
+            <div id="plot" class="plot-container"></div>
+        </div>
+    </div>
+
+    <script>
+        $(document).ready(function(){
+            let fetchInterval;
+
+            $('#start-button').click(function(){
+                const localIp = $('#local-ip').val();
+                const apiUrl = `http://${localIp}/robot-data`;
+                $.ajax({
+                    type: 'POST',
+                    url: '/start',
+                    contentType: 'application/json',
+                    data: JSON.stringify({api_url: apiUrl}),
+                    success: function(data){
+                        fetchInterval = setInterval(fetchLatestData, 1000);
+                    }
+                });
+            });
+
+            $('#stop-button').click(function(){
+                $.post('/stop', function(data){
+                    clearInterval(fetchInterval);
+                });
+            });
+
+            function fetchLatestData() {
+                $.get('/latest-data', function(data){
+                    if (data.Scene_Image && data.Range_Array) {
+                        displayImage(data.Scene_Image, data.Range_Array, data.Obj_Detected);
+                    }
+                    const pathClearance = data.Obj_Detected === "path not clear" ? "No" : "Yes";
+                    $('#path-clearance').text(pathClearance);
+                    $('#path-clearance').removeClass('yes no').addClass(pathClearance === "Yes" ? 'yes' : 'no');
+                });
+            }
+
+            function displayImage(matrix, range_array, detectionStatus) {
+                let colorscale;
+                if (detectionStatus === "path not clear") {
+                    colorscale = [
+                        ["0.0", "#440000"],
+                        ["0.301029995663981", "#550000"],
+                        ["0.477121254719662", "#660000"],
+                        ["0.602059991327962", "#880000"],
+                        ["0.698970004336018", "#A00000"],
+                        ["0.778151250383643", "#BB0000"],
+                        ["0.845098040014256", "#CF0000"],
+                        ["0.903089986991943", "#EF0000"],
+                        ["0.954242509439324", "#FF0000"],
+                        ["1.0", "#FFF000"],
+                    ];
+                } else {
+                    colorscale = [
+                        ["0.0", "#004400"],
+                        ["0.301029995663981", "#005500"],
+                        ["0.477121254719662", "#006600"],
+                        ["0.602059991327962", "#008800"],
+                        ["0.698970004336018", "#00A000"],
+                        ["0.778151250383643", "#00BB00"],
+                        ["0.845098040014256", "#00CF00"],
+                        ["0.903089986991943", "#00EF00"],
+                        ["0.954242509439324", "#00FF00"],
+                        ["1.0", "#F0FF00"],
+                    ];
+                }
+
+                const data = [{
+                    x: range_array,
+                    z: matrix,
+                    type: 'heatmap',
+                    colorscale: colorscale
+                }];
+
+                const layout = {
+                    title: 'Scene Image',
+                    xaxis: { title: 'Range (m)' },
+                    yaxis: { title: 'Power (dBm)', autorange: 'reversed' },
+                    margin: { t: 40, l: 40, r: 40, b: 40 },
+                    width: 600,  // Adjusted width
+                    height: 400  // Adjusted height
+                };
+
+                Plotly.newPlot('plot', data, layout);
+            }
+        });
+    </script>
+</body>
+</html>
